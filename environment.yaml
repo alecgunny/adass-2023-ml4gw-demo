@@ -1,0 +1,36 @@
+name: adass-2023-ml4gw-demo
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+platforms:
+  - linux-64
+dependencies:
+  # high level python deps. Need poetry as
+  # a build backend for local pip installation
+  - python=3.9
+  - pip
+  - poetry
+  # Data Science (TM) deps
+  - bokeh
+  - scipy
+  - h5py
+  - jupyterlab
+  - jupyterlab_rise
+  - ipywidgets
+  # torch deps
+  - pytorch>=1.10,<2.0
+  - pytorch-cuda=11.7
+  - lightning
+  # GW data deps
+  - gwpy
+  - pycbc
+  - bilby
+  - libgcc
+  - krb5
+  - python-ldas-tools-framecpp<3.0.0
+  - python-nds2-client
+  # torchtyping is needed for ml4gw
+  # but isn't available from any conda source
+  - pip:
+    - torchtyping

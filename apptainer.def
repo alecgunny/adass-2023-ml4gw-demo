@@ -1,0 +1,38 @@
+Bootstrap: docker
+From: mambaorg/micromamba:1.5
+Stage: build
+
+%files
+pyproject.toml /opt/demo/
+conda-lock.yml /opt/demo
+ml4gw /opt/demo/ml4gw
+hermes /opt/demo/hermes
+utils /opt/demo/utils
+
+%post
+mkdir -p /cvmfs /hdfs /gpfs /ceph /hadoop
+
+# activate micromamba and create environment from lockfile
+/bin/bash /root/.bashrc
+micromamba create -p /opt/env -f /opt/demo/conda-lock.yml
+
+# pip install our remaining packages, avoiding
+# installing dependencies since we don't want
+# to touch the libraries resolved by conda
+        # 'torchtyping==0.1.4' \
+        # 'typeguard==2.13.3' \
+micromamba run -p /opt/env python -m \
+    pip install --no-deps --no-build-isolation \
+        hdf5plugin \
+        -e /opt/demo/ml4gw \
+        -e /opt/demo
+
+# initialize our shell so that we can execute
+# commands in our environment at run time
+micromamba shell init --shell=bash --root-prefix=~/micromamba
+
+%runscript
+#!/bin/bash
+eval "$(micromamba shell hook --shell bash)"
+micromamba activate /opt/env
+exec "$@"

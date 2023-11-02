@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "adass-2023-ml4gw-demo"
+version = "0.1.0"
+description = "Generate data for training and evaluating aframe"
+authors = ["Alec Gunny <alecg@mit.edu>"]
+license = "MIT"
+packages = [
+    {include = "utils"}
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+ml4gw = {path = "ml4gw", develop = true}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
