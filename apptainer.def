@@ -23,7 +23,6 @@ micromamba create -p /opt/env -f /opt/demo/conda-lock.yml
         # 'typeguard==2.13.3' \
 micromamba run -p /opt/env python -m \
     pip install --no-deps --no-build-isolation \
-        hdf5plugin \
         -e /opt/demo/ml4gw \
         -e /opt/demo
 
