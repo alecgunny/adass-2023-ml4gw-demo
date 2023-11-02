@@ -16,7 +16,7 @@ def infer_on_timeslide(
     inference_sampling_rate: float,
     fduration: float,
     psd_length: float,
-    batch_size: int
+    batch_size: int,
 ):
     # infer the sample rate and initial timestamp
     # of the current dataset from data attributes
@@ -58,7 +58,7 @@ def infer_on_timeslide(
     for i, channel in enumerate(channels):
         start = shift_sizes[i]
         stop = start + state_size
-        snapshot[i] = torch.Tensor(background[channel][start: stop])
+        snapshot[i] = torch.Tensor(background[channel][start:stop])
     snapshot = snapshot.to("cuda")
 
     # initialize a blank tensor of updates that
@@ -80,7 +80,7 @@ def infer_on_timeslide(
             # writing this.
             start = shift_sizes[j] + offset - xsize + update_size
             stop = start + update.size(-1)
-            x = torch.Tensor(background[channel][start: stop]).to("cuda")
+            x = torch.Tensor(background[channel][start:stop]).to("cuda")
             update[j] = x
 
         # append our updates to our snapshot, slough off old
@@ -140,7 +140,7 @@ def infer_on_timeslide(
 
             x[inject_idx] += waveforms.view(-1)
             if underflow or overflow:
-                x = x[underflow: -overflow or None]
+                x = x[underflow : -overflow or None]
             X_inj.append(x)
         X_inj = torch.stack(X_inj)
 

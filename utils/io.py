@@ -13,6 +13,5 @@ def read_timeseries(fname, channels, start, duration, x=None):
                 size = int(duration * sample_rate)
                 if x is None:
                     x = np.zeros((len(channels), size))
-            x[i] = dataset[offset: offset + size]
+            x[i] = dataset[offset : offset + size]
     return x
-        

@@ -15,3 +15,21 @@ ml4gw = {path = "ml4gw", develop = true}
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 79
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.tox
+  | _build
+  | dist
+  | docs
+)/
+'''
+
+[tool.isort]
+known_first_party = ["utils", "ml4gw", "hermes"]
+multi_line_output = 3
+include_trailing_comma = true

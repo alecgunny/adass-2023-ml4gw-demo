@@ -14,14 +14,14 @@ def project_waveform(
     declination: float,
     right_ascension: float,
     polarization: float,
-    ifo: str
+    ifo: str,
 ) -> np.ndarray:
     detector = Detector(ifo)
     fp, fc = detector.antenna_pattern(
         t_gps=t_gps,
         declination=declination,
         right_ascension=right_ascension,
-        polarization=polarization
+        polarization=polarization,
     )
     ht = fp * hp + fc * hc
     return ht
@@ -32,7 +32,7 @@ def sample_background(
     sample_size: int,
     psd_size: int,
     dataset: h5py.Group,
-    signal_params: Optional[dict[str, np.ndarray]] = None
+    signal_params: Optional[dict[str, np.ndarray]] = None,
 ):
     load_size = sample_size + psd_size
     size = len(dataset[ifos[0]])
@@ -68,7 +68,7 @@ def make_dataset(
     psd_length: float,
     fftlength: float,
     sample_rate: float,
-    highpass: float = 32
+    highpass: float = 32,
 ) -> np.ndarray:
     num_waveforms = len(signal["polarizations"]["cross"])
     num_samples = 2 * num_waveforms

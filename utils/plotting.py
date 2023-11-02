@@ -2,21 +2,13 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import torch
-from gwpy.timeseries import TimeSeries
-from gwpy.frequencyseries import FrequencySeries
-
-from bokeh.plotting import figure
 from bokeh.io import curdoc, output_notebook, show
+from bokeh.models import LinearAxis, Range1d
 from bokeh.palettes import Bright7 as palette
+from bokeh.plotting import figure
 from bokeh.themes import Theme
-from bokeh.models import (
-    HoverTool,
-    ColumnDataSource,
-    Range1d,
-    LinearAxis
-)
-
+from gwpy.frequencyseries import FrequencySeries
+from gwpy.timeseries import TimeSeries
 
 theme = {
     "attrs": {
@@ -26,16 +18,13 @@ theme = {
             "height": 300,
             "width": 700,
         },
-        "Grid": {
-            "grid_line_color": '#aaaaaa',
-            "grid_line_width": 0.8
-        }
+        "Grid": {"grid_line_color": "#aaaaaa", "grid_line_width": 0.8},
     },
     "line_defaults": {
         "line_width": 1.25,
         "line_alpha": 0.6,
-        "line_color": palette[0]
-    }
+        "line_color": palette[0],
+    },
 }
 
 curdoc().theme = Theme(json=theme)
@@ -50,7 +39,7 @@ def make_figure(**kwargs):
     default_kwargs = dict(tools="")
     default_kwargs.update(kwargs)
     for key in ["x", "y", "title"]:
-        if key in ["x", "y"]: 
+        if key in ["x", "y"]:
             key = f"{key}_axis_label"
 
         try:
@@ -86,7 +75,7 @@ def plot_lines(
     fig_kwargs: dict = {},
     line_kwargs: dict = {},
     legend_location: Optional[str] = None,
-    **y: np.ndarray
+    **y: np.ndarray,
 ):
     p = make_figure(**fig_kwargs)
     for color, (label, arr) in zip(palette, y.items()):
@@ -105,13 +94,7 @@ def plot_lines(
                 "do not have an xindex associated with them."
             )
 
-        p.line(
-            _x,
-            y=arr,
-            line_color=color,
-            legend_label=label,
-            **line_kwargs
-        )
+        p.line(_x, y=arr, line_color=color, legend_label=label, **line_kwargs)
     if legend_location is not None:
         p.legend.location = legend_location
     show(p)
@@ -122,7 +105,7 @@ def plot_timeseries(
     fig_kwargs: dict = {},
     line_kwargs: dict = {},
     legend_location: Optional[str] = None,
-    **y: np.ndarray
+    **y: np.ndarray,
 ):
     if "x_axis_label" not in fig_kwargs:
         fig_kwargs["x_axis_label"] = "Time [s]"
@@ -136,7 +119,7 @@ def plot_spectral(
     fig_kwargs: dict = {},
     line_kwargs: dict = {},
     legend_location: Optional[str] = None,
-    **y: np.ndarray
+    **y: np.ndarray,
 ):
     if "x_axis_label" not in fig_kwargs:
         fig_kwargs["x_axis_label"] = "Frequency [Hz]"
@@ -149,10 +132,7 @@ def plot_spectral(
 
 def plot_run(name, version=0):
     df = pd.read_csv(f"logs/{name}/version_{version}/metrics.csv")
-    p = make_figure(
-        x_axis_label="Step",
-        y_axis_label="Train Loss"
-    )
+    p = make_figure(x_axis_label="Step", y_axis_label="Train Loss")
 
     mask = ~pd.isnull(df["train_loss"])
     p.line(
@@ -161,7 +141,7 @@ def plot_run(name, version=0):
         line_color=palette[2],
         line_alpha=0.8,
         line_width=1.5,
-        legend_label="Train Loss"
+        legend_label="Train Loss",
     )
 
     max_val = df["valid_auroc"].max()
@@ -181,7 +161,7 @@ def plot_run(name, version=0):
         line_alpha=0.8,
         line_width=1.5,
         y_range_name="auroc",
-        legend_label="Valid AUROC"
+        legend_label="Valid AUROC",
     )
     p.legend.location = "bottom_right"
     show(p)
