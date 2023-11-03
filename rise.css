@@ -1,13 +1,13 @@
 div.text_cell_render {
-  font-size: 75%;
+  font-size: 150%;
 }
 
 body.rise-enabled div.inner_cell>div.input_area {
-    font-size: 150%;
+    font-size: 100%;
 }
 
 body.rise-enabled div.output_subarea.output_text.output_result {
-    font-size: 150%;
+    font-size: 100%;
 }
 body.rise-enabled div.output_subarea.output_text.output_stream.output_stdout {
   font-size: 150%;

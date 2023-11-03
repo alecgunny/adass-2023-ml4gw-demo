@@ -89,6 +89,7 @@ def make_dataset(
         key = np.random.choice(datasets, p=p)
         dataset = background[key]
 
+        # we'll alternate between background and signals
         idx, rem = divmod(i, 2)
         if rem:
             params = {k: v[idx] for k, v in sky_params.items()}
@@ -107,4 +108,7 @@ def make_dataset(
             x = x.whiten(asd=asd, fduration=fduration, highpass=highpass)
             x = x.crop(0.5, 1.5)
             X[i, j] = x.value
-    return X
+
+    y = np.zeros((num_samples, 1))
+    y[1::2] = 1
+    return X, y

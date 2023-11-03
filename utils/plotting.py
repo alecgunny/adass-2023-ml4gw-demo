@@ -2,7 +2,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from bokeh.io import curdoc, output_notebook, show
+from bokeh.io import curdoc, output_notebook
+from bokeh.io import show as _show
+from bokeh.layouts import row
 from bokeh.models import LinearAxis, Range1d
 from bokeh.palettes import Bright7 as palette
 from bokeh.plotting import figure
@@ -16,7 +18,7 @@ theme = {
             "background_fill_color": "#fafafa",
             "background_fill_alpha": 0.8,
             "height": 300,
-            "width": 700,
+            "width": 800,
         },
         "Grid": {"grid_line_color": "#aaaaaa", "grid_line_width": 0.8},
     },
@@ -72,11 +74,14 @@ def hide_axis(p, axis):
 
 def plot_lines(
     x: Optional[np.ndarray] = None,
-    fig_kwargs: dict = {},
-    line_kwargs: dict = {},
+    fig_kwargs: Optional[dict] = None,
+    line_kwargs: Optional[dict] = None,
     legend_location: Optional[str] = None,
+    show: bool = True,
     **y: np.ndarray,
 ):
+    fig_kwargs = fig_kwargs or {}
+    line_kwargs = line_kwargs or {}
     p = make_figure(**fig_kwargs)
     for color, (label, arr) in zip(palette, y.items()):
         if x is not None:
@@ -97,21 +102,62 @@ def plot_lines(
         p.line(_x, y=arr, line_color=color, legend_label=label, **line_kwargs)
     if legend_location is not None:
         p.legend.location = legend_location
-    show(p)
+    if not show:
+        return p
+    _show(p)
 
 
 def plot_timeseries(
     x: Optional[np.ndarray] = None,
-    fig_kwargs: dict = {},
-    line_kwargs: dict = {},
+    fig_kwargs: Optional[dict] = None,
+    line_kwargs: Optional[dict] = None,
     legend_location: Optional[str] = None,
     **y: np.ndarray,
 ):
+    fig_kwargs = fig_kwargs or {}
+    line_kwargs = line_kwargs or {}
     if "x_axis_label" not in fig_kwargs:
         fig_kwargs["x_axis_label"] = "Time [s]"
     if "y_axis_label" not in fig_kwargs:
         fig_kwargs["y_axis_label"] = "Strain [unitless]"
-    plot_lines(x, fig_kwargs, line_kwargs, legend_location, **y)
+    return plot_lines(x, fig_kwargs, line_kwargs, legend_location, **y)
+
+
+def plot_side_by_side(
+    y1: dict[str, np.ndarray],
+    y2: dict[str, np.ndarray],
+    x: Optional[np.ndarray] = None,
+    fig_kwargs: Optional[dict] = None,
+    line_kwargs: Optional[dict] = None,
+    legend_location: Optional[str] = None,
+    titles: Optional[list[str]] = None,
+):
+    fig_kwargs = fig_kwargs or {}
+    line_kwargs = line_kwargs or {}
+    if "x_axis_label" not in fig_kwargs:
+        fig_kwargs["x_axis_label"] = "Time [s]"
+    if "y_axis_label" not in fig_kwargs:
+        fig_kwargs["y_axis_label"] = "Strain [unitless]"
+    if "width" not in fig_kwargs:
+        fig_kwargs["width"] = 450
+
+    if titles is not None:
+        fig_kwargs["title"] = titles[0]
+
+    p1 = plot_lines(
+        x, fig_kwargs, line_kwargs, legend_location, show=False, **y1
+    )
+    fig_kwargs.pop("y_axis_label")
+    fig_kwargs["y_range"] = p1.y_range
+    if titles is not None:
+        fig_kwargs["title"] = titles[1]
+    fig_kwargs["width"] -= 75
+
+    p2 = plot_lines(
+        x, fig_kwargs, line_kwargs, legend_location, show=False, **y2
+    )
+    hide_axis(p2, "y")
+    _show(row(p1, p2))
 
 
 def plot_spectral(
@@ -127,7 +173,7 @@ def plot_spectral(
         fig_kwargs["y_axis_label"] = r"$$\text{Power [Hz}^{-1}\text{]}$$"
     fig_kwargs["y_axis_type"] = "log"
     fig_kwargs["x_axis_type"] = "log"
-    plot_lines(x, fig_kwargs, line_kwargs, legend_location, **y)
+    return plot_lines(x, fig_kwargs, line_kwargs, legend_location, **y)
 
 
 def plot_run(name, version=0):
@@ -164,4 +210,4 @@ def plot_run(name, version=0):
         legend_label="Valid AUROC",
     )
     p.legend.location = "bottom_right"
-    show(p)
+    _show(p)
