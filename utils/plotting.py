@@ -5,8 +5,8 @@ import pandas as pd
 from bokeh.io import curdoc, output_notebook
 from bokeh.io import show as _show
 from bokeh.layouts import row
-from bokeh.models import LinearAxis, Range1d
-from bokeh.palettes import Bright7 as palette
+from bokeh.models import HoverTool, LinearAxis, Range1d
+from bokeh.palettes import Vibrant7 as palette
 from bokeh.plotting import figure
 from bokeh.themes import Theme
 from gwpy.frequencyseries import FrequencySeries
@@ -100,8 +100,8 @@ def plot_lines(
             )
 
         p.line(_x, y=arr, line_color=color, legend_label=label, **line_kwargs)
-    if legend_location is not None:
-        p.legend.location = legend_location
+
+    p.legend.location = legend_location or "top_left"
     if not show:
         return p
     _show(p)
@@ -176,38 +176,59 @@ def plot_spectral(
     return plot_lines(x, fig_kwargs, line_kwargs, legend_location, **y)
 
 
-def plot_run(name, version=0):
-    df = pd.read_csv(f"logs/{name}/version_{version}/metrics.csv")
-    p = make_figure(x_axis_label="Step", y_axis_label="Train Loss")
-
-    mask = ~pd.isnull(df["train_loss"])
-    p.line(
-        df["step"][mask],
-        df["train_loss"][mask],
-        line_color=palette[2],
-        line_alpha=0.8,
-        line_width=1.5,
-        legend_label="Train Loss",
-    )
-
-    max_val = df["valid_auroc"].max()
-    min_val = df["valid_auroc"].min()
-    pad = 0.05 * (max_val - min_val)
+def _get_bounds(values, pad):
+    max_val = values.max()
+    min_val = values.min()
+    pad = pad * (max_val - min_val)
     max_val += pad
     min_val -= pad
-    p.extra_y_ranges = {"auroc": Range1d(min_val, max_val)}
-    ax = LinearAxis(axis_label="Valid AUROC", y_range_name="auroc")
+    return min_val, max_val
+
+
+def plot_run(name, version=0):
+    df = pd.read_csv(f"logs/{name}/version_{version}/metrics.csv")
+    y_range = _get_bounds(df["train_loss"], 0.05)
+    p = make_figure(
+        x_axis_label="Step", y_axis_label="Train Loss", y_range=y_range
+    )
+
+    mask = ~pd.isnull(df["train_loss"])
+    r = p.line(
+        "step",
+        "train_loss",
+        line_color=palette[2],
+        line_alpha=0.8,
+        line_width=2.0,
+        legend_label="Train Loss",
+        source=df[mask],
+    )
+    tool = HoverTool(
+        renderers=[r],
+        tooltips=[("Step", "@step"), ("Train Loss", "@train_loss")],
+    )
+    p.add_tools(tool)
+
+    y_range = _get_bounds(df["valid_auroc"], 0.05)
+    p.extra_y_ranges = {"auroc": Range1d(*y_range)}
+    ax = LinearAxis(axis_label=_latexify("Valid AUROC"), y_range_name="auroc")
     p.add_layout(ax, "right")
 
     mask = ~pd.isnull(df["valid_auroc"])
-    p.line(
-        df["step"][mask],
-        df["valid_auroc"][mask],
+    r = p.line(
+        "step",
+        "valid_auroc",
         line_color=palette[3],
         line_alpha=0.8,
-        line_width=1.5,
+        line_width=2.0,
         y_range_name="auroc",
         legend_label="Valid AUROC",
+        source=df[mask],
     )
-    p.legend.location = "bottom_right"
+    tool = HoverTool(
+        renderers=[r],
+        tooltips=[("Step", "@step"), ("Valid AUROC", "@valid_auroc")],
+    )
+    p.add_tools(tool)
+
+    p.legend.location = "right"
     _show(p)
