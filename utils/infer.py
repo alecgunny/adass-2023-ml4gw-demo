@@ -1,111 +1,60 @@
+from collections import defaultdict
+from typing import Callable
+
 import h5py
+import numpy as np
 import torch
-from tqdm import trange
+from tqdm import tqdm
 
 from ml4gw.utils.slicing import unfold_windows
 
 
-@torch.no_grad()
-def infer_on_timeslide(
-    model: torch.nn.Module,
-    background: h5py.Group,
-    signals: h5py.Group,
-    channels: list[str],
-    shifts: list[float],
-    kernel_length: float,
-    inference_sampling_rate: float,
-    fduration: float,
-    psd_length: float,
-    batch_size: int,
-):
-    # infer the sample rate and initial timestamp
-    # of the current dataset from data attributes
-    sample_rate = 1 / background[channels[0]].attrs["dx"]
-    t0 = background[channels[0]].attrs["x0"]
+class TimeSlide:
+    def __init__(
+        self,
+        background: h5py.Group,
+        signals: h5py.Group,
+        channels: list[str],
+        shifts: list[float],
+        inference_sampling_rate: float,
+        batch_size: int,
+    ) -> None:
+        self.background = background
+        self.signals = signals
+        self.channels = channels
+        self.shifts = shifts
+        self.inference_sampling_rate = inference_sampling_rate
 
-    # load in the signal timestamps and use
-    # the data attributes to convert them to
-    # sample points in the timeseries
-    times = signals["parameters"]["gps_time"][:] - t0
-    positions = (times * sample_rate).astype(int)
-    positions = torch.from_numpy(positions).to("cuda")
-    signal_size = signals[channels[0]].shape[-1]
+        # infer the sample rate and initial timestamp
+        # of the current dataset from data attributes
+        self.sample_rate = 1 / background[channels[0]].attrs["dx"]
 
-    # convert a bunch of time units to sample units
-    step_size = int(sample_rate / inference_sampling_rate)
-    shift_sizes = [int(i * sample_rate) for i in shifts]
-    psd_size = int(psd_length * sample_rate)
-    kernel_size = int(kernel_length * sample_rate)
-    fsize = int(fduration * sample_rate)
+        # load in the signal timestamps and use
+        # the data attributes to convert them to
+        # sample points in the timeseries
+        self.t0 = background[channels[0]].attrs["x0"]
 
-    # determine the size of the time dimension
-    # of the tensor that we'll whiten all at
-    # once before turning into a batch
-    xsize = step_size * (batch_size - 1) + kernel_size + fsize
-    update_size = batch_size * step_size
-    full_size = psd_size + xsize
-    state_size = full_size - update_size
-    size = len(background[channels[0]])
-    size -= max(shift_sizes) + state_size + step_size
+        # convert a bunch of time units to sample units
+        self.step_size = int(self.sample_rate / inference_sampling_rate)
+        self.shift_sizes = [int(i * self.sample_rate) for i in shifts]
+        self.signal_size = signals[channels[0]].shape[-1]
 
-    # compute how many complete batches we anticipate going through
-    num_steps = int(size // step_size) + 1
-    num_batches = int(num_steps // batch_size)
+        # determine the size of the time dimension
+        # of the tensor that we'll whiten all at
+        # once before turning into a batch
+        self.update_size = self.step_size * batch_size
+        size = len(background[channels[0]]) - max(self.shift_sizes)
+        self.num_batches = int(size // self.update_size)
 
-    # initialize the state with pure background data
-    # for computing the first PSDs
-    snapshot = torch.Tensor((len(channels)), state_size)
-    for i, channel in enumerate(channels):
-        start = shift_sizes[i]
-        stop = start + state_size
-        snapshot[i] = torch.Tensor(background[channel][start:stop])
-    snapshot = snapshot.to("cuda")
+    def __len__(self):
+        return self.num_batches
 
-    # initialize a blank tensor of updates that
-    # we'll fill out with new data at each step
-    update_size = batch_size * step_size
-    update = torch.zeros((len(channels), update_size), device="cuda")
-
-    bg_preds, fg_preds = [], []
-    for i in trange(num_batches):
-        # this is the offset to the first sample
-        # of the timeseries we'll whiten, batch,
-        # then do inference on
-        offset = psd_size + i * update_size
-        for j, channel in enumerate(channels):
-            # offset the start index by the channel's shift
-            # as well as (xsize - update) to account for
-            # the difference between the psd size and the
-            # state size. If your head hurts, just imagine
-            # writing this.
-            start = shift_sizes[j] + offset - xsize + update_size
-            stop = start + update.size(-1)
-            x = torch.Tensor(background[channel][start:stop]).to("cuda")
-            update[j] = x
-
-        # append our updates to our snapshot, slough off old
-        # data to create a new snaphsot, then split the
-        # combined snapshot/update into a background for
-        # PSD calculation and a timeseries to be whitened
-        X = torch.cat([snapshot, update], dim=1)
-        snapshot = X[:, -state_size:]
-        whiten_background, X = torch.split(X, [psd_size, xsize], dim=1)
-
-        # do our injections. In principle this should live
-        # in its own function, or even better in its own
-        # class (see the aframe repo), but I'm going to
-        # write this all out here to (1) be very clear
-        # as to what's happening and (2) show that making
-        # optimized code can be tricky but is ultimately
-        # about minimizing data transfer and total number
-        # of memory-bound ops like slicing or simple
-        # array algebra (which has a low compute/memory ratio).
+    def inject(self, X, offset):
         X_inj = []
-        mask = offset <= positions
-        mask &= positions < (offset + xsize + signal_size)
-        idx = torch.where(mask)[0]
-        idx_np = idx.cpu().numpy()
-        pos = positions[idx] - offset
+        mask = offset <= self.positions
+        mask &= self.positions < (offset + self.update_size + self.signal_size)
+        idx = np.where(mask)[0]
+        pos = self.positions[idx] - offset
 
         # some fancy array footwork for adding
         # all of our waveforms into our batch
@@ -113,52 +62,215 @@ def infer_on_timeslide(
         # of insertion indices for each waveform
         # and then offset them by their position
         # in the target tensor.
-        indices = torch.arange(-signal_size, 0) + 1
-        indices = indices.to(X.device)
-        indices = indices.view(1, -1).repeat(len(idx), 1)
+        indices = np.arange(-self.signal_size, 0) + 1
+        indices = np.repeat(indices[None], len(idx), axis=0)
         indices += pos[:, None]
-        indices = indices.view(-1)
-        for j, channel in enumerate(channels):
-            # load in the waveforms that have some signal
-            # in this timeseries, and offset our global
-            # indices by this channel's shift.
-            waveforms = torch.Tensor(signals[channel][idx_np]).to(X)
-            inject_idx = indices - shift_sizes[j]
+        indices = indices.reshape(-1)
 
-            # some of our waveforms may extend beyond the
-            # current batch. In this case, the fastest
-            # thing to do will just be to pad some zeros,
-            # inject everything, then slice off the data
-            # that we don't need. It ain't pretty but
-            # that's showbiz baby.
-            underflow = int(max(-inject_idx.min().item(), 0))
-            overflow = int(max(inject_idx.max().item() - xsize, 0))
-            x = X[j] + 0
-            if underflow or overflow:
-                x = torch.nn.functional.pad(x, (underflow, overflow))
-                inject_idx += underflow
+        underflow = max(-indices.min(), 0)
+        overflow = max(indices.max() - self.update_size, 0)
+        if underflow or overflow:
+            X = np.pad(X, (0, 0, underflow, overflow))
+            indices += underflow
 
-            x[inject_idx] += waveforms.view(-1)
-            if underflow or overflow:
-                x = x[underflow : -overflow or None]
-            X_inj.append(x)
-        X_inj = torch.stack(X_inj)
+        waveforms = [self.signals[i][idx].reshape(-1) for i in self.channels]
+        waveforms = np.stack(waveforms)
+        X_inj = X.copy()
+        X_inj[:, indices] += waveforms
+        if underflow or overflow:
+            X_inj = X_inj[:, underflow : -overflow or None]
+        return X_inj
 
-        # we'll just use our ml4gw objects here
-        psd = model.spectral_density(whiten_background.double())
-        X = model.whitener(X, psd)[0]
-        X_inj = model.whitener(X_inj, psd)[0]
+    def __iter__(self):
+        self.times = self.signals["parameters"]["gps_time"][:]
+        self.t0 = self.background[self.channels[0]].attrs["x0"]
+        diffs = self.times - self.t0
+        self.positions = (diffs * self.sample_rate).astype(int)
 
-        # unfold into batches
-        X = unfold_windows(X, kernel_size, step_size)
-        X_inj = unfold_windows(X_inj, kernel_size, step_size)
+        for i in range(self.num_batches):
+            offset = i * self.update_size
+            X = []
+            for j, channel in enumerate(self.channels):
+                start = self.shift_sizes[j] + offset
+                stop = start + self.update_size
+                X.append(self.background[channel][start:stop])
+            X = np.stack(X)
+            X_inj = self.inject(X, offset)
+            yield np.stack([X, X_inj])
 
-        # # do inference
-        y_bg = model(X)[:, 0]
-        y_fg = model(X_inj)[:, 0]
-        bg_preds.append(y_bg)
-        fg_preds.append(y_fg)
+    def pool(self, x, pool_length):
+        pool_size = int(pool_length * self.inference_sampling_rate)
+        num_windows = int(len(x) // pool_size)
 
-    bg_preds = torch.cat(bg_preds)
-    fg_preds = torch.cat(fg_preds)
-    return bg_preds, fg_preds
+        size = num_windows * pool_size
+        if size < len(x):
+            remainder = x[size:]
+            x = x[:size]
+        else:
+            remainder = None
+
+        x = x.reshape(num_windows, pool_size)
+        idx = x.argmax(axis=-1)
+        offsets = np.arange(num_windows)
+
+        values = x[offsets, idx]
+        idx += offsets * pool_size
+
+        if remainder is not None:
+            last_idx = remainder.argmax()
+            last_val = remainder[last_idx]
+            values = np.concatenate([values, [last_val]])
+            idx = np.concatenate([idx, [size + last_idx]])
+        return values, idx
+
+    def get_events(
+        self,
+        bg_preds: np.ndarray,
+        fg_preds: np.ndarray,
+        kernel_length: float,
+        psd_length: float,
+        fduration: float,
+        pool_length: float = 8,
+    ):
+        drop = int(psd_length * self.inference_sampling_rate)
+        drop += int(fduration * self.inference_sampling_rate / 2)
+        bg_preds = bg_preds[drop:]
+        fg_preds = fg_preds[drop:]
+
+        bg_events, bg_indices = self.pool(bg_preds, pool_length)
+        fg_events, fg_indices = self.pool(fg_preds, pool_length)
+
+        bg_times = bg_indices / self.inference_sampling_rate
+        bg_times += self.t0 + psd_length + fduration / 2 + kernel_length
+        background = dict(
+            event_time=bg_times,
+            det_stat=bg_events,
+            shift=np.ones_like(bg_times)[:, None] * self.shifts,
+        )
+
+        # for each known injected event, find the foreground
+        # event that is closest to it and call that its
+        # detection statistic
+        timestamps = self.times - self.t0
+        mask = timestamps > (psd_length + fduration / 2)
+        mask &= timestamps < len(fg_preds) / self.inference_sampling_rate
+        idx = timestamps[mask] * self.inference_sampling_rate
+
+        diffs = np.abs(fg_indices[:, None] - idx)
+        argmin = diffs.argmin(axis=0)
+        fg_events = fg_events[argmin]
+        fg_indices = fg_indices[argmin]
+
+        fg_times = fg_indices / self.inference_sampling_rate
+        fg_times += self.t0 + psd_length + fduration / 2 + kernel_length
+        foreground = dict(
+            event_time=fg_times,
+            det_stat=fg_events,
+            shift=np.ones_like(fg_times)[:, None] * self.shifts,
+        )
+        for param, values in self.signals["parameters"].items():
+            foreground[param] = values[:][mask]
+        return background, foreground
+
+
+class BatchGenerator(torch.nn.Module):
+    def __init__(
+        self,
+        spectral_density: torch.nn.Module,
+        whitener: torch.nn.Module,
+        num_channels: int,
+        kernel_length: float,
+        fduration: float,
+        psd_length: float,
+        inference_sampling_rate: float,
+        sample_rate: float,
+    ) -> None:
+        super().__init__()
+        self.spectral_density = spectral_density
+        self.whitener = whitener
+
+        self.step_size = int(sample_rate / inference_sampling_rate)
+        self.kernel_size = int(kernel_length * sample_rate)
+        self.fsize = int(fduration * sample_rate)
+        self.psd_size = int(psd_length * sample_rate)
+        self.num_channels = num_channels
+
+    @property
+    def state_size(self):
+        return self.psd_size + self.kernel_size + self.fsize - self.step_size
+
+    def get_initial_state(self):
+        return torch.zeros((2, self.num_channels, self.state_size))
+
+    def forward(self, X, state):
+        state = torch.cat([state, X], dim=-1)
+        split = [self.psd_size, state.size(-1) - self.psd_size]
+        whiten_background, X = torch.split(state, split, dim=-1)
+
+        psd = self.spectral_density(whiten_background[0].double())
+        X = self.whitener(X, psd)
+        X = unfold_windows(X, self.kernel_size, self.step_size)
+        X = X.reshape(-1, self.num_channels, self.kernel_size)
+        return X, state[:, :, -self.state_size :]
+
+
+def _cat_dict(d: dict[str, list[np.ndarray]]) -> dict[str, np.ndarray]:
+    return {k: np.concatenate(v, axis=0) for k, v in d.items()}
+
+
+def infer(
+    inference_fn: Callable,
+    ifos: list[str],
+    kernel_length: float,
+    psd_length: float,
+    fduration: float,
+    inference_sampling_rate: float,
+    batch_size: int,
+    pool_length: float = 8,
+):
+    bgf = h5py.File("data/background.hdf5", "r")
+    fgf = h5py.File("data/signals.hdf5", "r")
+
+    foreground_events, background_events = defaultdict(list), defaultdict(list)
+    num_rejected, Tb = 0, 0
+    with bgf, fgf, torch.no_grad():
+        timeslides = []
+        bgf, fgf = bgf["test"], fgf["test"]
+        for segment in fgf.keys():
+            background = bgf[segment]
+            foreground = fgf[segment]
+            for shifts, signals in foreground.items():
+                timeslide = TimeSlide(
+                    background,
+                    signals,
+                    ifos,
+                    eval(shifts),
+                    inference_sampling_rate,
+                    batch_size,
+                )
+                timeslides.append(timeslide)
+                num_rejected += signals.attrs["num_rejected"]
+
+        total_steps = sum([len(i) for i in timeslides])
+        with tqdm(total=total_steps) as pbar:
+            for timeslide in timeslides:
+                bg_preds, fg_preds = inference_fn(timeslide, pbar)
+                bg_events, fg_events = timeslide.get_events(
+                    bg_preds,
+                    fg_preds,
+                    kernel_length,
+                    psd_length,
+                    fduration,
+                    pool_length=pool_length,
+                )
+                for key, val in bg_events.items():
+                    background_events[key].append(val)
+                for key, val in fg_events.items():
+                    foreground_events[key].append(val)
+
+                Tb += len(bg_preds) / inference_sampling_rate - psd_length
+                break
+
+    background_events = _cat_dict(background_events)
+    foreground_events = _cat_dict(foreground_events)
+    return background_events, foreground_events, num_rejected, Tb

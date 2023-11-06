@@ -34,3 +34,5 @@ dependencies:
   # but isn't available from any conda source
   - pip:
     - torchtyping
+    - tensorrt==8.5.1.7
+    - tritonclient

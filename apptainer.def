@@ -24,6 +24,8 @@ micromamba create -p /opt/env -f /opt/demo/conda-lock.yml
 micromamba run -p /opt/env python -m \
     pip install --no-deps --no-build-isolation \
         -e /opt/demo/ml4gw \
+        -e /opt/demo/hermes/hermes/hermes.aeriel \
+        -e /opt/demo/hermes/hermes/hermes.quiver \
         -e /opt/demo
 
 # initialize our shell so that we can execute
