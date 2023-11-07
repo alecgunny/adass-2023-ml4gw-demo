@@ -1,3 +1,4 @@
+import time
 from collections import defaultdict
 from typing import Callable
 
@@ -5,6 +6,7 @@ import h5py
 import numpy as np
 import torch
 from tqdm import tqdm
+from tritonclient import grpc as triton
 
 from ml4gw.utils.slicing import unfold_windows
 
@@ -291,3 +293,18 @@ def infer(
     background_events = _cat_dict(background_events)
     foreground_events = _cat_dict(foreground_events)
     return background_events, foreground_events, num_rejected, Tb
+
+
+def wait_for_model(model_name, timeout=60):
+    client = triton.InferenceServerClient("localhost:8001")
+    tick = time.time()
+    while (time.time() - tick) < timeout:
+        try:
+            ready = client.is_model_ready(model_name)
+        except Exception:
+            time.sleep(1)
+        else:
+            if ready:
+                break
+    else:
+        raise TimeoutError(f"Model {model_name} never came online")

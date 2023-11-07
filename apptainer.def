@@ -16,11 +16,9 @@ mkdir -p /cvmfs /hdfs /gpfs /ceph /hadoop
 /bin/bash /root/.bashrc
 micromamba create -p /opt/env -f /opt/demo/conda-lock.yml
 
-# pip install our remaining packages, avoiding
+# pip install our local packages, avoiding
 # installing dependencies since we don't want
 # to touch the libraries resolved by conda
-        # 'torchtyping==0.1.4' \
-        # 'typeguard==2.13.3' \
 micromamba run -p /opt/env python -m \
     pip install --no-deps --no-build-isolation \
         -e /opt/demo/ml4gw \
