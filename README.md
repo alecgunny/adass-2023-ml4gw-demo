@@ -10,8 +10,10 @@ apptainer build demo.sif apptainer.def
 
 Then you can launch jupyter lab inside the container
 ```console
-APPTAINERENV_HDF5_USE_FILE_LOCKING=FALSE APPTAINERENV_CUDA_VISIBLE_DEVICES=0 apptainer run \
-    --bind .:/opt/demo --bind /cvmfs:/cvmfs --nv \
+# pick which GPU index you want to use
+DEVICE=0
+APPTAINERENV_HDF5_USE_FILE_LOCKING=FALSE APPTAINERENV_CUDA_VISIBLE_DEVICES=$DEVICE \
+    apptainer run --bind .:/opt/demo --bind /cvmfs:/cvmfs --nv \
     demo.sif jupyter lab \
         --ip 0.0.0.0 \
         --port 8858 \
@@ -39,8 +41,8 @@ Then launch the slide server on a specified port (can't use default of 8000 sinc
 # whichever device you want to run on, ideally
 # different from the ones Triton is running on
 DEVICE=2
-APPTAINERENV_HDF5_USE_FILE_LOCKING=FALSE APPTAINERENV_CUDA_VISIBLE_DEVICES=0 apptainer run \
-    --bind .:/opt/demo --bind /cvmfs:/cvmfs --nv \
+APPTAINERENV_HDF5_USE_FILE_LOCKING=FALSE APPTAINERENV_CUDA_VISIBLE_DEVICES=$DEVICE \
+    apptainer run --bind .:/opt/demo --bind /cvmfs:/cvmfs --nv \
     demo.sif jupyter nbconvert \
         --execute \
         --to slides \
