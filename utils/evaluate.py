@@ -18,13 +18,6 @@ def get_astrophysical_volume(zmax=2):
     return volume * 4 * np.pi / 10**9
 
 
-def lognorm_prob(x, median, sigma):
-    mu = np.log(median)
-    exp = -((np.log(x) - mu) ** 2) / sigma**2 / 2
-    norm = 1 / x / sigma / (2 * np.pi) ** 0.5
-    return norm * np.exp(exp)
-
-
 def evaluate(
     background_events: dict[str, np.ndarray],
     foreground_events: dict[str, np.ndarray],
@@ -39,11 +32,12 @@ def evaluate(
 
     mass_combos = [(35, 35), (35, 20), (20, 20), (20, 10)]
     num_accepted = len(foreground_events["det_stat"])
-    weights = np.zeros((len(mass_combos), num_accepted, 1))
+    weights = np.zeros((len(mass_combos), num_accepted))
 
-    mass_dict = {
-        k: v for k, v in foreground_events.items() if k.startswith("mass")
-    }
+    mass_dict = {}
+    for i in range(2):
+        mass_dict[f"mass{i + 1}"] = foreground_events[f"mass{i + 1}"]
+
     for i, (m1, m2) in enumerate(mass_combos):
         prior = dict(
             mass1=LogNormal(mu=np.log(m1), sigma=0.1),
@@ -52,13 +46,13 @@ def evaluate(
         )
         prior = PriorDict(prior, conversion_function=mass_ratio)
         prob = prior.prob(mass_dict, axis=0)
-        weights[i, :, 0] = prob / foreground_events["prob"]
+        weights[i] = prob / foreground_events["prob"]
 
     mask = foreground_events["det_stat"][:, None] >= thresholds
-    detections = weights * mask
+    detections = weights[:, :, None] * mask
     total_events = num_accepted + num_rejected
     detections = detections.sum(axis=1) / total_events
 
     volume = get_astrophysical_volume(zmax=2)
     detections *= volume
-    return fars, dict(zip(mass_combos, detections)), weights
+    return fars, dict(zip(mass_combos, detections))

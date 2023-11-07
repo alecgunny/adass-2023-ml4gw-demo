@@ -18,6 +18,7 @@ from gwpy.io.nds2 import NDSWarning  # noqa
 warnings.filterwarnings("ignore", module="gwpy", category=NDSWarning)
 warnings.filterwarnings("ignore", module="pandas", category=UserWarning)
 warnings.filterwarnings("ignore", module="tqdm")
+warnings.filterwarnings("ignore", module="torch")
 
 # for the main notebook
 logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(

@@ -4,13 +4,15 @@ import numpy as np
 import pandas as pd
 from bokeh.io import curdoc, output_notebook
 from bokeh.io import show as _show
-from bokeh.layouts import row
+from bokeh.layouts import grid, row
 from bokeh.models import HoverTool, LinearAxis, Range1d
 from bokeh.palettes import Vibrant7 as palette
 from bokeh.plotting import figure
 from bokeh.themes import Theme
 from gwpy.frequencyseries import FrequencySeries
 from gwpy.timeseries import TimeSeries
+
+from utils.evaluate import evaluate
 
 theme = {
     "attrs": {
@@ -232,3 +234,72 @@ def plot_run(name, version=0):
 
     p.legend.location = "right"
     _show(p)
+
+
+def make_grid(combos):
+    if len(combos) != 4:
+        raise ValueError(
+            "Only support 2x2 grids, can't plot {} combos".format(len(combos))
+        )
+
+    plots = []
+    for i, combo in enumerate(combos):
+        kwargs = dict(
+            title=r"$$\text{{Log Normal }}m_1={}, m_2={}$$".format(*combo),
+            x_axis_type="log",
+        )
+
+        kwargs["width"] = 350
+        if not i % 2:
+            # plots on the left need space for y-axis label
+            kwargs["width"] += 30
+            kwargs["y_axis_label"] = (
+                r"$$\text{Sensitive Volume [Gpc}" r"^{3}\text{]}$$"
+            )
+
+        kwargs["height"] = 220
+        if i > 1:
+            # lower plots need space for x-axis label
+            kwargs["height"] += 30
+            kwargs["x_axis_label"] = (
+                r"$$\text{False Alarm Rate " r"[weeks}^{-1}\text{]}$$"
+            )
+
+        # share x range between all plots
+        if plots:
+            kwargs["x_range"] = plots[0].x_range
+
+        p = make_figure(**kwargs)
+        p.outline_line_color = "#ffffff"
+
+        # don't show x axis on upper plots
+        if i < 2:
+            hide_axis(p, "x")
+        plots.append(p)
+    return plots
+
+
+def plot_evaluation(**results):
+    plots = []
+    for color, (label, result) in zip(palette[2:], results.items()):
+        fars, svs = evaluate(*result, max_far_per_week=200)
+        combos = sorted(svs)
+        if not plots:
+            plots = make_grid(combos)
+
+        for plot, combo in zip(plots, combos):
+            kwargs = {}
+            if combo == combos[0]:
+                kwargs["legend_label"] = label
+
+            plot.line(
+                x=fars,
+                y=svs[combo],
+                line_color=color,
+                line_width=1.5,
+                line_alpha=0.7,
+                **kwargs,
+            )
+            if combo == combos[0]:
+                plot.legend.location = "top_left"
+    _show(grid(plots, ncols=2))

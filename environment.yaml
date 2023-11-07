@@ -30,9 +30,11 @@ dependencies:
   - krb5
   - python-ldas-tools-framecpp<3.0.0
   - python-nds2-client
-  # torchtyping is needed for ml4gw
-  # but isn't available from any conda source
+  # some deps that aren't available
+  # from any conda source. conda-lock
+  # can still manage these with a vendored
+  # version of poetry's solver
   - pip:
     - torchtyping
-    - tensorrt==8.5.1.7
-    - tritonclient
+    - tensorrt>=8.6.1,<8.6.2
+    - tritonclient[grpc]

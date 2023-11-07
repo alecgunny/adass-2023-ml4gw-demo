@@ -9,6 +9,49 @@ from tqdm import tqdm
 from ml4gw.utils.slicing import unfold_windows
 
 
+class BatchGenerator(torch.nn.Module):
+    def __init__(
+        self,
+        spectral_density: torch.nn.Module,
+        whitener: torch.nn.Module,
+        num_channels: int,
+        kernel_length: float,
+        fduration: float,
+        psd_length: float,
+        inference_sampling_rate: float,
+        sample_rate: float,
+    ) -> None:
+        super().__init__()
+        self.spectral_density = spectral_density
+        self.whitener = whitener
+
+        self.step_size = int(sample_rate / inference_sampling_rate)
+        self.kernel_size = int(kernel_length * sample_rate)
+        self.fsize = int(fduration * sample_rate)
+        self.psd_size = int(psd_length * sample_rate)
+        self.num_channels = num_channels
+
+    @property
+    def state_size(self):
+        return self.psd_size + self.kernel_size + self.fsize - self.step_size
+
+    def get_initial_state(self):
+        return torch.zeros((2, self.num_channels, self.state_size))
+
+    def forward(self, X, state):
+        state = torch.cat([state, X], dim=-1)
+        split = [self.psd_size, state.size(-1) - self.psd_size]
+        whiten_background, X = torch.split(state, split, dim=-1)
+
+        # only use the PSD of the non-injected data for computing
+        # our whitening to avoid biasing our PSD estimate
+        psd = self.spectral_density(whiten_background[0].double())
+        X = self.whitener(X, psd)
+        X = unfold_windows(X, self.kernel_size, self.step_size)
+        X = X.reshape(-1, self.num_channels, self.kernel_size)
+        return X, state[:, :, -self.state_size :]
+
+
 class TimeSlide:
     def __init__(
         self,
@@ -48,6 +91,10 @@ class TimeSlide:
 
     def __len__(self):
         return self.num_batches
+
+    @property
+    def num_rejected(self):
+        return self.signals.attrs["num_rejected"]
 
     def inject(self, X, offset):
         X_inj = []
@@ -173,47 +220,6 @@ class TimeSlide:
         return background, foreground
 
 
-class BatchGenerator(torch.nn.Module):
-    def __init__(
-        self,
-        spectral_density: torch.nn.Module,
-        whitener: torch.nn.Module,
-        num_channels: int,
-        kernel_length: float,
-        fduration: float,
-        psd_length: float,
-        inference_sampling_rate: float,
-        sample_rate: float,
-    ) -> None:
-        super().__init__()
-        self.spectral_density = spectral_density
-        self.whitener = whitener
-
-        self.step_size = int(sample_rate / inference_sampling_rate)
-        self.kernel_size = int(kernel_length * sample_rate)
-        self.fsize = int(fduration * sample_rate)
-        self.psd_size = int(psd_length * sample_rate)
-        self.num_channels = num_channels
-
-    @property
-    def state_size(self):
-        return self.psd_size + self.kernel_size + self.fsize - self.step_size
-
-    def get_initial_state(self):
-        return torch.zeros((2, self.num_channels, self.state_size))
-
-    def forward(self, X, state):
-        state = torch.cat([state, X], dim=-1)
-        split = [self.psd_size, state.size(-1) - self.psd_size]
-        whiten_background, X = torch.split(state, split, dim=-1)
-
-        psd = self.spectral_density(whiten_background[0].double())
-        X = self.whitener(X, psd)
-        X = unfold_windows(X, self.kernel_size, self.step_size)
-        X = X.reshape(-1, self.num_channels, self.kernel_size)
-        return X, state[:, :, -self.state_size :]
-
-
 def _cat_dict(d: dict[str, list[np.ndarray]]) -> dict[str, np.ndarray]:
     return {k: np.concatenate(v, axis=0) for k, v in d.items()}
 
@@ -232,10 +238,14 @@ def infer(
     fgf = h5py.File("data/signals.hdf5", "r")
 
     foreground_events, background_events = defaultdict(list), defaultdict(list)
-    num_rejected, Tb = 0, 0
     with bgf, fgf, torch.no_grad():
-        timeslides = []
+        # grab the test split of both files
         bgf, fgf = bgf["test"], fgf["test"]
+
+        # start by generating a bunch of TimeSlide objects up front
+        # so we know how much inference we have to do and can track
+        # it with a progress bar
+        timeslides = []
         for segment in fgf.keys():
             background = bgf[segment]
             foreground = fgf[segment]
@@ -249,12 +259,19 @@ def infer(
                     batch_size,
                 )
                 timeslides.append(timeslide)
-                num_rejected += signals.attrs["num_rejected"]
 
         total_steps = sum([len(i) for i in timeslides])
+        Tb, num_rejected = 0, 0
         with tqdm(total=total_steps) as pbar:
+            # now iterate through each one of these timeslides
+            # and generate NN predictions on them
             for timeslide in timeslides:
+                # this generates the timeseries of nn outputs
                 bg_preds, fg_preds = inference_fn(timeslide, pbar)
+
+                # this turns them into "events": getting rid
+                # of duplicates by pooling and aligning
+                # injections with their closest event
                 bg_events, fg_events = timeslide.get_events(
                     bg_preds,
                     fg_preds,
@@ -269,7 +286,7 @@ def infer(
                     foreground_events[key].append(val)
 
                 Tb += len(bg_preds) / inference_sampling_rate - psd_length
-                break
+                num_rejected += timeslide.num_rejected
 
     background_events = _cat_dict(background_events)
     foreground_events = _cat_dict(foreground_events)
