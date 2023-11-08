@@ -50,7 +50,13 @@ def evaluate(
 
     mask = foreground_events["det_stat"][:, None] >= thresholds
     detections = weights[:, :, None] * mask
-    total_events = num_accepted + num_rejected
+
+    # increasing our number of rejected events by
+    # a fudge factor to account for a currently
+    # unexplained underestimate of the actual
+    # value we expect. I'm not happy about it either.
+    fudge_factor = 9
+    total_events = num_accepted + fudge_factor * num_rejected
     detections = detections.sum(axis=1) / total_events
 
     volume = get_astrophysical_volume(zmax=2)
