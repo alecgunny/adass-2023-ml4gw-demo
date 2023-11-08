@@ -290,7 +290,7 @@ def plot_evaluation(**results):
         for plot, combo in zip(plots, combos):
             kwargs = {}
             if combo == combos[0]:
-                kwargs["legend_label"] = label
+                kwargs["legend_label"] = label.replace("_", " ")
 
             plot.line(
                 x=fars,
@@ -302,4 +302,9 @@ def plot_evaluation(**results):
             )
             if combo == combos[0]:
                 plot.legend.location = "top_left"
+                plot.legend.margin = 4
+                plot.legend.padding = 2
+                plot.legend.glyph_height = 6
+                plot.legend.label_text_font_size = "8pt"
+                plot.legend.label_height = 8
     _show(grid(plots, ncols=2))
