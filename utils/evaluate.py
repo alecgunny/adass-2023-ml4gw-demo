@@ -55,7 +55,7 @@ def evaluate(
     # a fudge factor to account for a currently
     # unexplained underestimate of the actual
     # value we expect. I'm not happy about it either.
-    fudge_factor = 9
+    fudge_factor = 12
     total_events = num_accepted + fudge_factor * num_rejected
     detections = detections.sum(axis=1) / total_events
 
